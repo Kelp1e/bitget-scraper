@@ -3,6 +3,7 @@
 **Frontend:**
 - React
 - Redux Toolkit
+- RTK Query
 - React Beautiful DND
 
 **Backend:**
