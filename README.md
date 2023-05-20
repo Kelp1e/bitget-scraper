@@ -4,6 +4,7 @@
 - React
 - Redux Toolkit
 - RTK Query
+- Tailwind
 - React Beautiful DND
 
 **Backend:**
@@ -16,3 +17,4 @@
 **Other:**
 - Docker
 - NGINX
+- Vite
