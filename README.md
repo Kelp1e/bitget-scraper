@@ -1,2 +1,2 @@
 # kanban-react-djangorest
-Django, React
+Django, React, Docker
