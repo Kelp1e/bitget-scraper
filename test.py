@@ -383,12 +383,3 @@ qkeys = [
     "dbochman-1",
     "mark-tether",
 ]
-
-scraper = create_scraper()
-
-
-def my_request(func, *args, **kwargs):
-    response = func(*args, **kwargs)
-
-    return response
-

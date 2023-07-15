@@ -1,16 +1,11 @@
-import random
 import time
 
-import requests
 from cloudscraper import create_scraper
 from requests import HTTPError
-from requests.auth import HTTPProxyAuth
 
 from db.models import ARB
 from db.setup import create_session
-from proxies.proxies import get_proxies
 from request_data.spot import json_data
-from test import qkeys
 
 scraper = create_scraper()
 
@@ -25,73 +20,124 @@ def request(func, *args, **kwargs):
     except HTTPError as error:
         if error.response.status_code == 429:
             # Logic with proxy here
-            time.sleep(5)
+            time.sleep(60)
 
-            return func(*args, **kwargs)
+            return request(func, *args, **kwargs)
 
 
-def get_test(qkey, headers):
-    response = request(scraper.get, f"https://api.arkhamintelligence.com/intelligence/search?query={qkey}",
-                       headers=headers)
-
-    return response
+def get_token_id_by_symbol(symbol, coin_list):
+    for coin in coin_list:
+        if coin.get("symbol") == symbol:
+            return coin.get("id")
 
 
 def get_spot_tokens():
     url = "https://www.bitget.com/v1/mix/market/homeQuotation"
 
-    response = scraper.post(url, json=json_data).json()
+    response = request(scraper.post, url, json=json_data).json()
 
     return response
 
 
+# TOKEN_SYMBOL FIELD
 def get_token_symbol(token):
-    token_symbol = token.get("baseSymbol")
+    token_symbol = token.get("baseSymbol").lower()
 
     return token_symbol
 
 
+# EXCHANGE_CODE FIELD
 def get_token_exchange_code(token):
-    exchange_code = token.get("exchangeCode")
+    exchange_code = token.get("exchangeCode").lower()
 
     return exchange_code
 
 
+# ORDERS FIELD
 def get_token_orders(token):
     symbol = token.get("symbolId")
 
-    url = "https://api.bitget.com/api/spot/v1/market/depth?symbol={}"
+    url = f"https://api.bitget.com/api/spot/v1/market/depth?symbol={symbol}"
 
-    response = scraper.get(url.format(symbol)).json().get("data")
+    response = request(scraper.get, url).json().get("data")
 
     return response
 
 
-def get_token_contracts(token):
-    pass
+# CONTRACTS FIELD
+def get_token_contracts(token, coin_list):
+    symbol = get_token_symbol(token)
+    token_id = get_token_id_by_symbol(symbol, coin_list)
+
+    url = f"https://api.coingecko.com/api/v3/coins/{token_id}"
+
+    response = request(scraper.get, url)
+
+    if not response:
+        return
+
+    data = response.json()
+    detail_platforms = data.get("detail_platforms")
+
+    contracts = {}
+
+    # Ethereum contract
+    ethereum = detail_platforms.get("ethereum")
+
+    if ethereum:
+        contracts["ethereum"] = ethereum.get("contract_address")
+
+    # BSC contract
+    bsc = detail_platforms.get("binance-smart-chain")
+
+    if bsc:
+        contracts["bsc"] = bsc.get("contract_address")
+
+    return contracts
 
 
-def get_token_change_price(token):
-    pass
+# CHANGE_5M FIELD
+def get_token_change_price(contracts):
+    if contracts:
+        bsc = contracts.get("bsc")
+        ethereum = contracts.get("ethereum")
+
+        address = bsc if bsc else ethereum
+
+        response = request(
+            scraper.get, f"https://api.dexscreener.com/latest/dex/search?q={address}"
+        ).json()
+
+        pairs = response.get("pairs")
+
+        if pairs:
+            first_pair = pairs[0]
+            price_change = first_pair.get("priceChange")
+            change_5m = price_change.get("m5")
+
+            return change_5m
 
 
-def load_data(s, tokens_data, proxies):
-    for token in tokens_data[:10]:
+def load_data(s, tokens_data, coin_list):
+    for token in tokens_data:
         token_symbol = get_token_symbol(token)
         token_exchange_code = get_token_exchange_code(token)
         token_orders = get_token_orders(token)
-
-        print(token_symbol, token_exchange_code, token_orders)
+        token_contracts = get_token_contracts(token, coin_list)
+        token_change_price = get_token_change_price(token_contracts)
 
         arb = s.query(ARB).filter_by(exchange_code=token_exchange_code).first()
 
         if arb:
             arb.orders = token_orders
+            arb.change_5m = token_change_price
         else:
             arb = ARB(
                 token_symbol=token_symbol,
                 exchange_code=token_exchange_code,
                 orders=token_orders,
+                contracts=token_contracts,
+                change_5m=token_change_price
             )
 
         s.add(arb)
@@ -99,22 +145,16 @@ def load_data(s, tokens_data, proxies):
 
 
 def main():
-    # session = create_session()
-    # s = session()
-    #
-    # proxies = get_proxies()
-    #
-    # tokens_data = get_spot_tokens().get("data")
-    #
-    # load_data(s, tokens_data, proxies)
-    headers = {
-        "authorization": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjE0ZWI4YTNiNjgzN2Y2MTU4ZWViNjA3NmU2YThjNDI4YTVmNjJhN2IiLCJ0eXAiOiJKV1QifQ.eyJuYW1lIjoiS2VscDFlIiwiaXNzIjoiaHR0cHM6Ly9zZWN1cmV0b2tlbi5nb29nbGUuY29tL2Fya2hhbS1kZXYtMjgxNDIzIiwiYXVkIjoiYXJraGFtLWRldi0yODE0MjMiLCJhdXRoX3RpbWUiOjE2ODc2OTI0NzAsInVzZXJfaWQiOiJGZzJSUlY5cU9HVGNRc28zR01iYmZQclgxMnIxIiwic3ViIjoiRmcyUlJWOXFPR1RjUXNvM0dNYmJmUHJYMTJyMSIsImlhdCI6MTY4OTQwNDk1NiwiZXhwIjoxNjg5NDA4NTU2LCJlbWFpbCI6InZsYWRrbHAyMkBnbWFpbC5jb20iLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZW1haWwiOlsidmxhZGtscDIyQGdtYWlsLmNvbSJdfSwic2lnbl9pbl9wcm92aWRlciI6InBhc3N3b3JkIn19.J9vUbnxk9BYq-PwhQI8FSr3brr5hZnua5nOmz4zkJwyLo_Hyfw8PJw0RYn3zaNZL9d3dN1AGoHFl0W_SFk4we0w68NrapZgev9mbynpDnppIwTRjaK0de6qWi573DFTk4LMogp8ks4eKnfw_AkSwqSR4TurvbLsnNYH2tQzt6r-dyCBTZMXY0LdYIm3P3483WfaEzE9xeKBeKpRoItZEvmQU0pkM0B__2SNTDGM9CYL2ref2TvJoPEPepku1qgmBVSbmaoHTkR3qjWSy4DqAHs1F5mhH1nuA_PAolBx1JXwYiTdd4SQbtIrHFPI5q80DV9nUuUnvxJpUwD2dN1cg-g"
-    }
+    session = create_session()
+    s = session()
 
-    while True:
-        for i in qkeys:
-            test = get_test(i, headers)
-            print(test)
+    coin_list = request(
+        scraper.get, "https://api.coingecko.com/api/v3/coins/list"
+    ).json()
+
+    tokens_data = get_spot_tokens().get("data")
+
+    load_data(s, tokens_data, coin_list)
 
 
 if __name__ == "__main__":
