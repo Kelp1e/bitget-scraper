@@ -1,3 +1,4 @@
+import json
 import time
 
 from cloudscraper import create_scraper
@@ -20,9 +21,27 @@ def request(func, *args, **kwargs):
     except HTTPError as error:
         if error.response.status_code == 429:
             # Logic with proxy here
+            print(error)
             time.sleep(60)
 
             return request(func, *args, **kwargs)
+
+
+def get_coin_list():
+    try:
+        with open("coin_list.json", "r") as file:
+            data = json.load(file)
+
+            return data
+    except FileNotFoundError:
+        url = "https://api.coingecko.com/api/v3/coins/list"
+
+        response = request(scraper.get, url).json()
+
+        with open("coin_list.json", "w") as file:
+            json.dump(response, file)
+
+        return response
 
 
 def get_token_id_by_symbol(symbol, coin_list):
@@ -32,32 +51,25 @@ def get_token_id_by_symbol(symbol, coin_list):
 
 
 def get_spot_tokens():
-    url = "https://www.bitget.com/v1/mix/market/homeQuotation"
+    url = "https://api.bitget.com/api/mix/v1/market/contracts?productType=umcbl"
 
-    response = request(scraper.post, url, json=json_data).json()
+    response = request(scraper.get, url).json()
 
     return response
 
 
 # TOKEN_SYMBOL FIELD
 def get_token_symbol(token):
-    token_symbol = token.get("baseSymbol").lower()
+    token_symbol = token.get("baseCoin").lower()
 
     return token_symbol
 
 
-# EXCHANGE_CODE FIELD
-def get_token_exchange_code(token):
-    exchange_code = token.get("exchangeCode").lower()
-
-    return exchange_code
-
-
 # ORDERS FIELD
 def get_token_orders(token):
-    symbol = token.get("symbolId")
+    symbol = token.get("symbol")
 
-    url = f"https://api.bitget.com/api/spot/v1/market/depth?symbol={symbol}"
+    url = f"https://api.bitget.com/api/mix/v1/market/depth?symbol={symbol}&limit=100"
 
     response = request(scraper.get, url).json().get("data")
 
@@ -118,43 +130,41 @@ def get_token_change_price(contracts):
             return change_5m
 
 
-def load_data(s, tokens_data, coin_list):
-    for token in tokens_data:
-        token_symbol = get_token_symbol(token)
-        token_exchange_code = get_token_exchange_code(token)
-        token_orders = get_token_orders(token)
-        token_contracts = get_token_contracts(token, coin_list)
-        token_change_price = get_token_change_price(token_contracts)
+def load_data(s, token, coin_list):
+    token_symbol = get_token_symbol(token)
+    token_orders = get_token_orders(token)
+    token_contracts = get_token_contracts(token, coin_list)
+    token_change_price = get_token_change_price(token_contracts)
 
-        arb = s.query(ARB).filter_by(exchange_code=token_exchange_code).first()
+    arb = s.query(ARB).filter_by(token_symbol=token_symbol).first()
 
-        if arb:
-            arb.orders = token_orders
-            arb.change_5m = token_change_price
-        else:
-            arb = ARB(
-                token_symbol=token_symbol,
-                exchange_code=token_exchange_code,
-                orders=token_orders,
-                contracts=token_contracts,
-                change_5m=token_change_price
-            )
+    print(token_symbol, token_contracts, token_change_price, token_orders)
 
-        s.add(arb)
-        s.commit()
+    if arb:
+        arb.orders = token_orders
+        arb.change_5m = token_change_price
+    else:
+        arb = ARB(
+            token_symbol=token_symbol,
+            orders=token_orders,
+            contracts=token_contracts,
+            change_5m=token_change_price
+        )
+
+    s.add(arb)
+    s.commit()
 
 
 def main():
     session = create_session()
     s = session()
 
-    coin_list = request(
-        scraper.get, "https://api.coingecko.com/api/v3/coins/list"
-    ).json()
+    coin_list = get_coin_list()
 
     tokens_data = get_spot_tokens().get("data")
 
-    load_data(s, tokens_data, coin_list)
+    for token in tokens_data:
+        load_data(s, token, coin_list)
 
 
 if __name__ == "__main__":

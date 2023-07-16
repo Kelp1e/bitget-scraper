@@ -1,5 +1,7 @@
 json_data = {
-    "businessLine": 1,
-    "isHome": False,
-    "languageType": 0,
+    'businessLine': 10,
+    'isHome': False,
+    'rankingType': 3,
+    'switchNew': True,
+    'languageType': 0,
 }

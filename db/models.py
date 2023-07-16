@@ -11,7 +11,6 @@ class ARB(Base):
     id = Column(Integer, primary_key=True)
 
     token_symbol = Column(String)
-    exchange_code = Column(String)
     orders = Column(JSON)
-    token_contract = Column(JSON)
+    contracts = Column(JSON)
     change_5m = Column(Float)
