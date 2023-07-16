@@ -50,8 +50,8 @@ def get_token_id_by_symbol(symbol, coin_list):
             return coin.get("id")
 
 
-def get_spot_tokens():
-    url = "https://api.bitget.com/api/mix/v1/market/contracts?productType=umcbl"
+def get_spot_tokens(product_type):
+    url = f"https://api.bitget.com/api/mix/v1/market/contracts?productType={product_type}"
 
     response = request(scraper.get, url).json()
 
@@ -138,7 +138,7 @@ def load_data(s, token, coin_list):
 
     arb = s.query(ARB).filter_by(token_symbol=token_symbol).first()
 
-    print(token_symbol, token_contracts, token_change_price, token_orders)
+    print(token_symbol)
 
     if arb:
         arb.orders = token_orders
@@ -148,7 +148,7 @@ def load_data(s, token, coin_list):
             token_symbol=token_symbol,
             orders=token_orders,
             contracts=token_contracts,
-            change_5m=token_change_price
+            change_5m=token_change_price,
         )
 
     s.add(arb)
@@ -161,8 +161,9 @@ def main():
 
     coin_list = get_coin_list()
 
-    tokens_data = get_spot_tokens().get("data")
+    tokens_data = get_spot_tokens("umcbl").get("data")
 
+    # Load data
     for token in tokens_data:
         load_data(s, token, coin_list)
 
