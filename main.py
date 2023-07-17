@@ -135,7 +135,6 @@ def get_token_change_price(contracts):
 
 def load_data(s, token, coin_list):
     token_symbol = get_token_symbol(token)
-    print(token_symbol)
     token_orders = get_token_orders(token)
     token_contracts = get_token_contracts(token, coin_list)
     token_change_price = get_token_change_price(token_contracts)
@@ -210,7 +209,7 @@ def main():
 
     # Scheduler
     scheduler = BackgroundScheduler()
-    scheduler.add_job(update_token_orders, args=(tokens_data,), trigger=IntervalTrigger(minutes=20))
+    scheduler.add_job(update_token_orders, args=(tokens_data,), trigger=IntervalTrigger(minutes=1))
     scheduler.add_job(update_token_change_price, args=(coin_list, tokens_data), trigger=IntervalTrigger(minutes=5))
     scheduler.start()
 
